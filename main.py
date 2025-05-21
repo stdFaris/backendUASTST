@@ -45,7 +45,7 @@ def initialize_database():
             print("Database kosong. Menambahkan dummy data...")
             
             # Generate dummy data - maksimal 150 partner, minimal 2 per peran per kecamatan
-            dummy_partners = generate_dummy_partners(max_partners=150, min_per_category_per_kecamatan=2)
+            dummy_partners = generate_dummy_partners(max_partners=75, min_per_category_per_kecamatan=1)
             
             # Masukkan ke database
             for partner_data in dummy_partners:
