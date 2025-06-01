@@ -12,19 +12,37 @@ import json
 
 app = FastAPI()
 
-# Konfigurasi CORS
-origins = [
-    "https://santairumah.netlify.app",
-]
+# Konfigurasi CORS berdasarkan environment
+if os.getenv("ENVIRONMENT") == "production":
+    origins = [
+        "https://santairumah.netlify.app",
+        # Tambahkan domain production lainnya jika ada
+    ]
+else:
+    # Development origins
+    origins = [
+        "https://santairumah.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+    ],
+    expose_headers=["*"],
 )
-
 # Fungsi untuk inisialisasi database dengan dummy data jika kosong
 def initialize_database():
     # Membuat tabel di database jika belum ada
