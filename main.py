@@ -9,110 +9,130 @@ from src.models.partner import Partner
 from src.schemas.enums import PartnerRole
 from src.utils.dummy_data import generate_dummy_partners
 import json
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Konfigurasi CORS berdasarkan environment
-if os.getenv("ENVIRONMENT") == "production":
-    origins = [
-        "https://santairumah.netlify.app",
-        # Tambahkan domain production lainnya jika ada
-    ]
-else:
-    # Development origins
-    origins = [
+# CORS Configuration - Lebih permisif untuk debugging
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
         "https://santairumah.netlify.app",
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-    ]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=[
-        "Accept",
-        "Accept-Language",
-        "Content-Language",
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-    ],
+    allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Middleware untuk logging requests
+@app.middleware("http")
+async def log_requests(request, call_next):
+    logger.info(f"Request: {request.method} {request.url}")
+    logger.info(f"Origin: {request.headers.get('origin', 'No origin')}")
+    response = await call_next(request)
+    logger.info(f"Response status: {response.status_code}")
+    return response
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy", 
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "port": os.getenv("PORT", "8000")
+    }
+
 # Fungsi untuk inisialisasi database dengan dummy data jika kosong
 def initialize_database():
-    # Membuat tabel di database jika belum ada
-    Base.metadata.create_all(bind=engine)
-    
-    # Membuat session database
-    db = SessionLocal()
     try:
-        # Cek apakah ada data partner di database
-        partner_count = db.query(Partner).count()
+        logger.info("Starting database initialization...")
+        # Membuat tabel di database jika belum ada
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
         
-        # Jika database kosong (tidak ada partner), tambahkan dummy data
-        if partner_count == 0:
-            print("Database kosong. Menambahkan dummy data...")
+        # Membuat session database
+        db = SessionLocal()
+        try:
+            # Cek apakah ada data partner di database
+            partner_count = db.query(Partner).count()
+            logger.info(f"Found {partner_count} existing partners in database")
             
-            # Generate dummy data - maksimal 150 partner, minimal 2 per peran per kecamatan
-            dummy_partners = generate_dummy_partners(max_partners=75, min_per_category_per_kecamatan=1)
-            
-            # Masukkan ke database
-            for partner_data in dummy_partners:
-                # Konversi enum ke string untuk penyimpanan JSON
-                role_str = partner_data["role"].value if isinstance(partner_data["role"], PartnerRole) else partner_data["role"]
+            # Jika database kosong (tidak ada partner), tambahkan dummy data
+            if partner_count == 0:
+                logger.info("Database kosong. Menambahkan dummy data...")
                 
-                # Konversi preferred_booking_type ke string jika merupakan enum
-                booking_type = partner_data["preferred_booking_type"]
-                booking_type_str = booking_type.value if hasattr(booking_type, "value") else booking_type
+                # Generate dummy data - maksimal 150 partner, minimal 2 per peran per kecamatan
+                dummy_partners = generate_dummy_partners(max_partners=75, min_per_category_per_kecamatan=1)
+                logger.info(f"Generated {len(dummy_partners)} dummy partners")
                 
-                # Pastikan specializations disimpan sebagai JSON yang valid
-                specializations_data = partner_data["specializations"]
+                # Masukkan ke database
+                for partner_data in dummy_partners:
+                    # Konversi enum ke string untuk penyimpanan JSON
+                    role_str = partner_data["role"].value if isinstance(partner_data["role"], PartnerRole) else partner_data["role"]
+                    
+                    # Konversi preferred_booking_type ke string jika merupakan enum
+                    booking_type = partner_data["preferred_booking_type"]
+                    booking_type_str = booking_type.value if hasattr(booking_type, "value") else booking_type
+                    
+                    # Pastikan specializations disimpan sebagai JSON yang valid
+                    specializations_data = partner_data["specializations"]
+                    
+                    # Pastikan pricing disimpan sebagai JSON yang valid
+                    pricing_data = partner_data["pricing"]
+                    
+                    # Buat objek Partner dengan data yang telah dikonversi
+                    partner = Partner(
+                        full_name=partner_data["full_name"],
+                        role=role_str,  # Gunakan string
+                        experience_years=partner_data["experience_years"],
+                        rating=partner_data["rating"],
+                        total_reviews=partner_data["total_reviews"],
+                        specializations=specializations_data,
+                        pricing=pricing_data,
+                        kecamatan=partner_data["kecamatan"],
+                        is_available=partner_data["is_available"],
+                        profile_image=partner_data["profile_image"],
+                        preferred_booking_type=booking_type_str,  # Gunakan string
+                        languages=partner_data["languages"],
+                        profile_description=partner_data["profile_description"]
+                    )
+                    db.add(partner)
                 
-                # Pastikan pricing disimpan sebagai JSON yang valid
-                pricing_data = partner_data["pricing"]
-                
-                # Buat objek Partner dengan data yang telah dikonversi
-                partner = Partner(
-                    full_name=partner_data["full_name"],
-                    role=role_str,  # Gunakan string
-                    experience_years=partner_data["experience_years"],
-                    rating=partner_data["rating"],
-                    total_reviews=partner_data["total_reviews"],
-                    specializations=specializations_data,
-                    pricing=pricing_data,
-                    kecamatan=partner_data["kecamatan"],
-                    is_available=partner_data["is_available"],
-                    profile_image=partner_data["profile_image"],
-                    preferred_booking_type=booking_type_str,  # Gunakan string
-                    languages=partner_data["languages"],
-                    profile_description=partner_data["profile_description"]
-                )
-                db.add(partner)
-            
-            # Commit semua perubahan sekaligus
-            db.commit()
-            print(f"Berhasil menambahkan {len(dummy_partners)} dummy partners ke database.")
-        else:
-            print(f"Database sudah memiliki {partner_count} partner. Tidak perlu menambahkan dummy data.")
+                # Commit semua perubahan sekaligus
+                db.commit()
+                logger.info(f"Berhasil menambahkan {len(dummy_partners)} dummy partners ke database.")
+            else:
+                logger.info(f"Database sudah memiliki {partner_count} partner. Tidak perlu menambahkan dummy data.")
+        
+        except Exception as e:
+            logger.error(f"Error saat mengisi dummy data: {e}")
+            db.rollback()
+        finally:
+            db.close()
     
     except Exception as e:
-        print(f"Error saat inisialisasi database: {e}")
-        # Jika terjadi error, tambahkan detail lebih banyak untuk debugging
+        logger.error(f"Critical error saat inisialisasi database: {e}")
+        # Jangan biarkan aplikasi crash
         import traceback
-        print(traceback.format_exc())
-        db.rollback()
-    finally:
-        db.close()
+        logger.error(traceback.format_exc())
 
 # Panggil fungsi inisialisasi database saat aplikasi di-start
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Application starting up...")
+    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    logger.info(f"Port: {os.getenv('PORT', '8000')}")
     initialize_database()
+    logger.info("Application startup completed")
 
 # Include routers
 app.include_router(auth.router)
@@ -126,6 +146,10 @@ app.include_router(notifications.router)
 async def root():
     return {"message": "Welcome to Service Booking API"}
 
+# Test CORS endpoint
+@app.options("/auth/login")
+async def options_auth_login():
+    return {"message": "CORS preflight successful"}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
